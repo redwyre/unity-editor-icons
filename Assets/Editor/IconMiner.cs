@@ -65,10 +65,6 @@ namespace Halak
         [MenuItem("Unity Editor Icons/Generate README.md %g", priority = -1000)]
         private static void GenerateREADME()
         {
-            var guidMaterial = new Material(Shader.Find("Unlit/Texture"));
-            var guidMaterialId = "Assets/Editor/GuidMaterial.mat";
-            AssetDatabase.CreateAsset(guidMaterial, guidMaterialId);
-
             EditorUtility.DisplayProgressBar("Generate README.md", "Generating...", 0.0f);
             try
             {
@@ -91,49 +87,71 @@ namespace Halak
                 readmeContents.AppendLine($"| Icon | Name | File ID |");
                 readmeContents.AppendLine($"|------|------|---------|");
 
-                var assetNames = EnumerateIcons(editorAssetBundle, iconsPath).ToArray();
-                for (var i = 0; i < assetNames.Length; i++)
+                var assetNames = EnumerateIcons(editorAssetBundle, iconsPath).ToList();
+
+                int count = 0;
+
+                var categorizedAssetNames = assetNames
+                    .GroupBy(name =>
+                    {
+                        var relativePath = name.Substring(iconsPath.Length);
+                        var directoryName = Path.GetDirectoryName(relativePath);
+                        if (string.IsNullOrEmpty(directoryName))
+                            return string.Empty;
+                        return directoryName;
+                    })
+                    .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var category in categorizedAssetNames)
                 {
-                    var assetName = assetNames[i];
-                    var icon = editorAssetBundle.LoadAsset<Texture2D>(assetName);
-                    if (icon == null)
-                        continue;
+                    readmeContents.AppendLine();
+                    readmeContents.AppendLine($"## {(string.IsNullOrEmpty(category.Key) ? "Uncategorized" : category.Key)}");
+                    readmeContents.AppendLine();
+                    readmeContents.AppendLine($"| Icon | Name | File ID |");
+                    readmeContents.AppendLine($"|------|------|---------|");
 
-                    EditorUtility.DisplayProgressBar("Generate README.md", $"Generating... ({i + 1}/{assetNames.Length})", (float)i / assetNames.Length);
-
-                    var readableTexture = new Texture2D(icon.width, icon.height, icon.format, icon.mipmapCount > 1);
-
-                    Graphics.CopyTexture(icon, readableTexture);
-
-                    Texture2D copySource = readableTexture;
-
-                    if (GraphicsFormatUtility.IsCompressedFormat(icon.format))
+                    var categoryAssets = category.ToList();
+                    for (var i = 0; i < categoryAssets.Count; i++)
                     {
-                        copySource = Decompress(readableTexture);
+                        var assetName = categoryAssets[i];
+                        var icon = editorAssetBundle.LoadAsset<Texture2D>(assetName);
+                        if (icon == null)
+                            continue;
+
+                        EditorUtility.DisplayProgressBar("Generate README.md", $"Generating... ({count + 1}/{assetNames.Count})", (float)count / assetNames.Count);
+
+                        var readableTexture = new Texture2D(icon.width, icon.height, icon.format, icon.mipmapCount > 1);
+
+                        Graphics.CopyTexture(icon, readableTexture);
+
+                        Texture2D copySource = readableTexture;
+
+                        if (GraphicsFormatUtility.IsCompressedFormat(icon.format))
+                        {
+                            copySource = Decompress(readableTexture);
+                        }
+
+                        var folderPath = Path.GetDirectoryName(Path.Combine("icons/small/", assetName.Substring(iconsPath.Length)));
+                        Directory.CreateDirectory(folderPath);
+
+                        var iconPath = Path.Combine(folderPath, icon.name + ".png");
+                        File.WriteAllBytes(iconPath, copySource.EncodeToPNG());
+
+                        AssetDatabase.TryGetGUIDAndLocalFileIdentifier(icon, out var guid, out long fileId);
+
+                        var escapedUrl = iconPath.Replace(" ", "%20").Replace('\\', '/');
+                        readmeContents.AppendLine($"| ![]({escapedUrl}) | `{icon.name}` | `{fileId}` |");
+
+                        ++count;
+
+                        if (copySource != readableTexture)
+                        {
+                            Texture2D.DestroyImmediate(copySource);
+                        }
+
+                        Texture2D.DestroyImmediate(readableTexture);
                     }
-
-                    var folderPath = Path.GetDirectoryName(Path.Combine("icons/small/", assetName.Substring(iconsPath.Length)));
-                    Directory.CreateDirectory(folderPath);
-
-                    var iconPath = Path.Combine(folderPath, icon.name + ".png");
-                    File.WriteAllBytes(iconPath, copySource.EncodeToPNG());
-
-                    //
-                    guidMaterial.mainTexture = icon;
-                    EditorUtility.SetDirty(guidMaterial);
-                    AssetDatabase.SaveAssets();
-                    var fileId = GetFileId(guidMaterialId);
-
-                    var escapedUrl = iconPath.Replace(" ", "%20").Replace('\\', '/');
-                    readmeContents.AppendLine($"| ![]({escapedUrl}) | `{icon.name}` | `{fileId}` |");
-
-
-                    if (copySource != readableTexture)
-                    {
-                        Texture2D.DestroyImmediate(copySource);
-                    }
-
-                    Texture2D.DestroyImmediate(readableTexture);
                 }
 
                 File.WriteAllText("README.md", readmeContents.ToString());
@@ -143,7 +161,6 @@ namespace Halak
             finally
             {
                 EditorUtility.ClearProgressBar();
-                AssetDatabase.DeleteAsset(guidMaterialId);
             }
         }
 
@@ -159,19 +176,6 @@ namespace Halak
 
                 yield return assetName;
             }
-        }
-
-        private static string GetFileId(string proxyAssetPath)
-        {
-            var serializedAsset = File.ReadAllText(proxyAssetPath);
-            var index = serializedAsset.IndexOf("_MainTex:", StringComparison.Ordinal);
-            if (index == -1)
-                return string.Empty;
-
-            const string FileId = "fileID:";
-            var startIndex = serializedAsset.IndexOf(FileId, index) + FileId.Length;
-            var endIndex = serializedAsset.IndexOf(',', startIndex);
-            return serializedAsset.Substring(startIndex, endIndex - startIndex).Trim();
         }
 
         private static AssetBundle GetEditorAssetBundle()
