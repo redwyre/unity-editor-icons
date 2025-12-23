@@ -6,4 +6,6 @@ Logs/
 Temp/
 icons/original/
 *.sln
+*.slnx
 *.csproj
+/UserSettings
