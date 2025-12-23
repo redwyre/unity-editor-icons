@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using UnityEngine;
 using UnityEditor;
+using UnityEngine.Experimental.Rendering;
 
 namespace Halak
 {
@@ -30,14 +31,27 @@ namespace Halak
 
                     Graphics.CopyTexture(icon, readableTexture);
 
+                    Texture2D copySource = readableTexture;
+
+                    if (GraphicsFormatUtility.IsCompressedFormat(icon.format))
+                    {
+                        copySource = Decompress(readableTexture);
+                    }
+
                     var folderPath = Path.GetDirectoryName(Path.Combine("icons/original/", assetName.Substring(iconsPath.Length)));
-                    if (Directory.Exists(folderPath) == false)
-                        Directory.CreateDirectory(folderPath);
+                    Directory.CreateDirectory(folderPath);
 
                     var iconPath = Path.Combine(folderPath, icon.name + ".png");
-                    File.WriteAllBytes(iconPath, readableTexture.EncodeToPNG());
+                    File.WriteAllBytes(iconPath, copySource.EncodeToPNG());
 
                     count++;
+
+                    if (copySource != readableTexture)
+                    {
+                        Texture2D.DestroyImmediate(copySource);
+                    }
+
+                    Texture2D.DestroyImmediate(readableTexture);
                 }
 
                 Debug.Log($"{count} icons has been exported!");
@@ -91,12 +105,18 @@ namespace Halak
 
                     Graphics.CopyTexture(icon, readableTexture);
 
+                    Texture2D copySource = readableTexture;
+
+                    if (GraphicsFormatUtility.IsCompressedFormat(icon.format))
+                    {
+                        copySource = Decompress(readableTexture);
+                    }
+
                     var folderPath = Path.GetDirectoryName(Path.Combine("icons/small/", assetName.Substring(iconsPath.Length)));
-                    if (Directory.Exists(folderPath) == false)
-                        Directory.CreateDirectory(folderPath);
+                    Directory.CreateDirectory(folderPath);
 
                     var iconPath = Path.Combine(folderPath, icon.name + ".png");
-                    File.WriteAllBytes(iconPath, readableTexture.EncodeToPNG());
+                    File.WriteAllBytes(iconPath, copySource.EncodeToPNG());
 
                     //
                     guidMaterial.mainTexture = icon;
@@ -106,6 +126,14 @@ namespace Halak
 
                     var escapedUrl = iconPath.Replace(" ", "%20").Replace('\\', '/');
                     readmeContents.AppendLine($"| ![]({escapedUrl}) | `{icon.name}` | `{fileId}` |");
+
+
+                    if (copySource != readableTexture)
+                    {
+                        Texture2D.DestroyImmediate(copySource);
+                    }
+
+                    Texture2D.DestroyImmediate(readableTexture);
                 }
 
                 File.WriteAllText("README.md", readmeContents.ToString());
@@ -170,6 +198,26 @@ namespace Halak
 
             return (string)iconsPathProperty.GetValue(null, new object[] { });
 #endif
+        }
+
+        public static Texture2D Decompress(Texture2D source)
+        {
+            RenderTexture renderTex = RenderTexture.GetTemporary(
+                        source.width,
+                        source.height,
+                        0,
+                        RenderTextureFormat.Default,
+                        RenderTextureReadWrite.Linear);
+
+            Graphics.Blit(source, renderTex);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = renderTex;
+            Texture2D readableText = new Texture2D(source.width, source.height);
+            readableText.ReadPixels(new Rect(0, 0, renderTex.width, renderTex.height), 0, 0);
+            readableText.Apply();
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(renderTex);
+            return readableText;
         }
     }
 }
